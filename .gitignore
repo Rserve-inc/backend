@@ -1,0 +1,5 @@
+.idea
+.venv
+*.env
+
+firebase_admin_sdk.json
