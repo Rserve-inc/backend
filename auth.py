@@ -5,8 +5,13 @@ import jwt
 from fastapi import HTTPException, Request
 from jwt import PyJWTError
 
-from main import ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY, ALGORITHM, REFRESH_TOKEN_EXPIRE_DAYS
-from types import Role
+import envs
+from classes import Role
+
+SECRET_KEY = envs.SESSION_SECRET
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 15
+REFRESH_TOKEN_EXPIRE_DAYS = 30
 
 
 def verify_token(request: Request) -> Optional[str, str]:
@@ -23,6 +28,20 @@ def verify_token(request: Request) -> Optional[str, str]:
         return restaurant_id, role
     except PyJWTError:
         raise HTTPException(status_code=403, detail="Could not validate credentials")
+
+
+def refresh_token(refresh_token_str: str):
+    if not refresh_token_str:
+        raise HTTPException(status_code=403, detail="Refresh token not found")
+
+    try:
+        payload = jwt.decode(refresh_token_str, SECRET_KEY, algorithms=[ALGORITHM])
+        new_access_token = create_access_token(data={"sub": payload["sub"]})
+        return new_access_token
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=403, detail="Refresh token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=403, detail="Invalid refresh token")
 
 
 def create_access_token(data: dict):
