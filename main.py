@@ -3,7 +3,7 @@ from typing import Tuple
 import firebase_admin
 from fastapi import FastAPI, Response, Request, Depends, HTTPException
 from fastapi.security import HTTPBearer
-from firebase_admin import firestore, storage
+from firebase_admin import firestore, storage, auth
 from google.cloud.firestore_v1 import FieldFilter
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
@@ -63,17 +63,50 @@ async def get_tables(session_info: Tuple[str, str] = Depends(verify_token)):
 
 @app.get("/api/restaurant/reservations")
 async def get_reservations(session_info: Tuple[str, str] = Depends(verify_token)):
+    """
+    レストランの予約情報を取得
+
+    :param session_info: セッション情報を含むタプル(user_id, session_token)。httpOnly cookie のJWTトークンから取得したもの。
+    :return: 予約情報を含む辞書。形式は以下の通り:
+        {
+            "reservations": [
+                {
+                    "id": str,                   # 予約ID
+                    "userName": str,             # 予約を行ったユーザーの名前
+                    "time": datetime,            # 予約の日時
+                    "tables": [                  # 予約されたテーブルのリスト
+                        {
+                            "tableType": dict,   # tableTypeオブジェクト (FirebaseTableType)
+                            "tableCount": int    # 予約されたテーブルの数
+                        }
+                    ],
+                    "status": str,               # 予約のステータス (例: confirmed, pending, cancelled)
+                    "peopleCount": int           # 予約の人数
+                }
+            ]
+        }
+    """
     restaurant_id, role = session_info
     restaurant_ref = db.collection("restaurants").document(restaurant_id)
-    reservations = db.collection("reservations").where(filter=FieldFilter("restaurant", "==", restaurant_ref)).stream()
-    # {'reservations': [{'user': 'E9hJvs2xMNZgGfHGYiDypVinBVA2', 'restaurant': <google.cloud.firestore_v1.document.DocumentReference object at 0x0000018D89A912D0>, 'time': DatetimeWithNanoseconds(2024, 8, 6, 15, 0, 0, 816000, tzinfo=datetime.timezone.utc), 'tables': [{'tableType': <google.cloud.firestore_v1.document.DocumentReference object at 0x0000018D8ACD3CD0>, 'tableCount': 1}], 'status': 'pending', 'peopleCount': 2}]}
+    reservations_res = db.collection("reservations").where(
+        filter=FieldFilter("restaurant", "==", restaurant_ref)).stream()
+    reservations = {i.id: i.to_dict() for i in reservations_res}
     res = []
-    for reservation in reservations:
-        item = reservation.to_dict()
-        del item["restaurant"]
-        item["tables"] = [{"tableType": table["tableType"].get().to_dict(), "tableCount": table["tableCount"]} for table
-                          in item["tables"]]
-        res.append(item)
+    for reservation_id in reservations:
+        reservation = reservations[reservation_id]
+        reservation["id"] = reservation_id
+        # レストラン情報は不要なので削除
+        del reservation["restaurant"]
+        # ユーザーIDからユーザー情報を取得
+        user_name = auth.get_user(reservation["user"]).display_name
+        del reservation["user"]
+        reservation["userName"] = user_name
+        # tablesはreference型なので、それを取得してdictに変換
+        reservation["tables"] = [
+            {"tableType": table["tableType"].get().to_dict(), "tableCount": table["tableCount"]}
+            for table
+            in reservation["tables"]]
+        res.append(reservation)
     return {"reservations": res}
 
 
