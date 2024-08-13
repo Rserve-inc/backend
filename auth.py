@@ -62,7 +62,7 @@ def refresh_token(refresh_token_str: str):
 
     try:
         payload = jwt.decode(refresh_token_str, SECRET_KEY, algorithms=[ALGORITHM])
-        new_access_token = create_access_token(data={"sub": payload["sub"]})
+        new_access_token = create_access_token(data={"sub": payload["sub"], "role": payload["role"]})
         return new_access_token
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=403, detail="Refresh token expired")
