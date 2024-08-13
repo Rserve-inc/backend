@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
+import bcrypt
+import dataset
 import jwt
 from fastapi import HTTPException, Request
 from jwt import PyJWTError
@@ -12,9 +14,33 @@ SECRET_KEY = envs.SESSION_SECRET
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
 REFRESH_TOKEN_EXPIRE_DAYS = 30
+db: dataset.Database = dataset.connect(envs.DB_URL)
+accounts_table: dataset.Table = db["admin_accounts"]
 
 
-def verify_token(request: Request) -> Optional[str, str]:
+def get_password_hash(password: str) -> str:
+    """
+    与えられたパスワードをハッシュ化する
+
+    :param password: ハッシュ化する平文のパスワード
+    :return: ハッシュ化されたパスワード
+    """
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+
+def verify_password(restaurant_id: str, plain_password: str) -> bool:
+    """
+    平文のパスワードとハッシュ化されたパスワードを比較して検証する
+
+    :param restaurant_id: 検証するアカウントのID
+    :param plain_password: 検証する平文のパスワード
+    :return: パスワードが一致すればTrue、そうでなければFalse
+    """
+    hashed_password = accounts_table.find_one(restaurant_id=restaurant_id)["hashed_pw"]
+    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+
+def verify_token(request: Request) -> Optional[tuple[str, Role]]:
     token = request.cookies.get("access_token")
     if not token:
         raise HTTPException(status_code=403, detail="Token not found")
