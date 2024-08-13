@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 from typing import Tuple
 
 import firebase_admin
@@ -7,9 +9,11 @@ from firebase_admin import firestore, storage, auth
 from google.cloud.firestore_v1 import FieldFilter
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
+from starlette.responses import StreamingResponse
 
 import envs
 from auth import create_access_token, create_refresh_token, verify_token, refresh_token, verify_password
+from redis_funcs import check_for_updates, set_update_flag
 
 
 class LoginPayload(BaseModel):
@@ -18,7 +22,19 @@ class LoginPayload(BaseModel):
     password: str
 
 
-app = FastAPI(debug=envs.DEBUG)
+SERVER_RUNNING = True
+
+
+# set SERVER_RUNNING to False when shutting down
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global SERVER_RUNNING
+    yield
+    SERVER_RUNNING = False
+    print("Server shutting down")
+
+
+app = FastAPI(debug=envs.DEBUG, lifespan=lifespan)
 SECURE_COOKIE = envs.DEBUG is False
 
 security = HTTPBearer()
@@ -59,6 +75,26 @@ async def get_tables(session_info: Tuple[str, str] = Depends(verify_token)):
     restaurant_id, role = session_info
     tables = db.collection("restaurants").document(restaurant_id).collection("tableTypes").stream()
     return {"tables": [table.to_dict() for table in tables]}
+
+
+@app.get("/api/restaurant/reservations/updates")
+async def stream_reservations(session_info: Tuple[str, str] = Depends(verify_token)):
+    restaurant_id, _role = session_info
+
+    async def event_generator():
+        while SERVER_RUNNING:
+            try:
+                if check_for_updates(restaurant_id):  # WebHook等でフラグをセット
+                    yield f"data: update\n\n"
+                await asyncio.sleep(1)  # チェック間隔を設定
+            except asyncio.CancelledError:
+                print("SSE task was cancelled")
+                break  # ループを終了してタスクをクリーンに終了
+        print("SSE generator stopped")
+
+    response = StreamingResponse(event_generator(), media_type="text/event-stream")
+    response.timeout = 10
+    return response
 
 
 @app.get("/api/restaurant/reservations")
@@ -143,3 +179,10 @@ def update_vacancy(request: Request, session_info: Tuple[str, str] = Depends(ver
     # todo: 競合状態の管理のためにfirestoreのFieldIncrementを使用
     restaurant_id, role = session_info
     pass
+
+
+@app.post("/webhook")
+def firebase_webhook(request: Request):
+    set_update_flag("R75L213TDHd418zRwvAo")
+    pass
+    return {"message": "Webhook received"}

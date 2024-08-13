@@ -7,4 +7,5 @@ load_dotenv()
 FIREBASE_STORAGE_BUCKET = "rserve-1edc7.appspot.com"
 SESSION_SECRET = os.environ["SESSION_SECRET"]
 DB_URL = "postgresql://postgres@oracle1:5432/postgres"
+REDIS_HOST = "oracle1"
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
