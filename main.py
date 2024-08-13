@@ -1,6 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Tuple
+from typing import Tuple, Literal
 
 import firebase_admin
 from fastapi import FastAPI, Response, Request, Depends, HTTPException
@@ -22,16 +22,19 @@ class LoginPayload(BaseModel):
     password: str
 
 
-SERVER_RUNNING = True
+sse_tasks = set()
 
 
-# set SERVER_RUNNING to False when shutting down
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    global SERVER_RUNNING
-    yield
-    SERVER_RUNNING = False
-    print("Server shutting down")
+    global sse_tasks
+    try:
+        yield
+    finally:
+        for task in sse_tasks:
+            task.cancel()  # タスクをキャンセル
+        await asyncio.gather(*sse_tasks, return_exceptions=True)  # タスクが終了するのを待つ
+        print("Server shutting down")
 
 
 app = FastAPI(debug=envs.DEBUG, lifespan=lifespan)
@@ -74,7 +77,7 @@ async def check_token(_session_info: Tuple[str, str] = Depends(verify_token)):
 async def get_tables(session_info: Tuple[str, str] = Depends(verify_token)):
     restaurant_id, role = session_info
     tables = db.collection("restaurants").document(restaurant_id).collection("tableTypes").stream()
-    return {"tables": [table.to_dict() for table in tables]}
+    return {"tables": [{**table.to_dict(), "id": table.id} for table in tables]}
 
 
 @app.get("/api/restaurant/reservations/updates")
@@ -82,19 +85,18 @@ async def stream_reservations(session_info: Tuple[str, str] = Depends(verify_tok
     restaurant_id, _role = session_info
 
     async def event_generator():
-        while SERVER_RUNNING:
-            try:
-                if check_for_updates(restaurant_id):  # WebHook等でフラグをセット
+        try:
+            while True:
+                if check_for_updates(restaurant_id):
                     yield f"data: update\n\n"
                 await asyncio.sleep(1)  # チェック間隔を設定
-            except asyncio.CancelledError:
-                print("SSE task was cancelled")
-                break  # ループを終了してタスクをクリーンに終了
-        print("SSE generator stopped")
+        except asyncio.CancelledError:
+            print("SSE task was cancelled")
+            yield f"data: Server is shutting down\n\n"
+        finally:
+            print("SSE generator stopped")
 
-    response = StreamingResponse(event_generator(), media_type="text/event-stream")
-    response.timeout = 10
-    return response
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.get("/api/restaurant/reservations")
@@ -173,12 +175,21 @@ def refresh_token_api(request: Request, response: Response):
     return {"message": "Token refreshed"}
 
 
-@app.post("/api/restaurant/vacancy")
-def update_vacancy(request: Request, session_info: Tuple[str, str] = Depends(verify_token)):
-    # todo: tableTypesの値と同時に、レストランのドキュメントのsumOfVacancyもupdateする。
-    # todo: 競合状態の管理のためにfirestoreのFieldIncrementを使用
+@app.post("/api/restaurant/tables/{table_id}/vacancy/{action}")
+def update_vacancy(action: Literal["increment", "decrement"], table_id: str,
+                   session_info: Tuple[str, str] = Depends(verify_token)):
     restaurant_id, role = session_info
-    pass
+    if action == "increment":
+        diff = 1
+    else:
+        diff = -1
+    restaurant_ref = db.collection("restaurants").document(restaurant_id)
+    table_ref = restaurant_ref.collection("tableTypes").document(table_id)
+    # noinspection PyUnresolvedReferences
+    table_ref.update({"vacancy": firestore.Increment(diff)})
+    # noinspection PyUnresolvedReferences
+    restaurant_ref.update({"sumOfVacancy": firestore.Increment(diff)})
+    return {"message": "Vacancy updated"}
 
 
 @app.post("/webhook")
