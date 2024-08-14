@@ -1,4 +1,5 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager
 from typing import Tuple, Literal
 
@@ -9,7 +10,8 @@ from firebase_admin import firestore, storage, auth
 from google.cloud.firestore_v1 import FieldFilter
 from pydantic import BaseModel
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import StreamingResponse
+from starlette.responses import StreamingResponse, FileResponse
+from starlette.staticfiles import StaticFiles
 
 import envs
 from auth import create_access_token, create_refresh_token, verify_token, refresh_token, verify_password
@@ -61,6 +63,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.mount("/assets", StaticFiles(directory="public/assets"), name="assets")
+
 
 
 @app.get("/")
@@ -197,3 +201,14 @@ def firebase_webhook(request: Request):
     set_update_flag("R75L213TDHd418zRwvAo")
     pass
     return {"message": "Webhook received"}
+
+
+@app.get("/{_full_path:path}")
+async def serve_app(response: Response, _full_path: str):
+    # Reactのビルド済みインデックスファイルへのパス
+    index_path = os.path.join("public", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    else:
+        response.status_code = 404
+        return "Index file not found"
