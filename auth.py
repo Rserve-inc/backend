@@ -14,6 +14,7 @@ SECRET_KEY = envs.SESSION_SECRET
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15
 REFRESH_TOKEN_EXPIRE_DAYS = 30
+REFRESH_TOKEN_RENEW_DAYS = 7
 db: dataset.Database = dataset.connect(envs.DB_URL)
 accounts_table: dataset.Table = db["admin_accounts"]
 
@@ -56,14 +57,19 @@ def verify_token(request: Request) -> Optional[tuple[str, Role]]:
         raise HTTPException(status_code=403, detail="Could not validate credentials")
 
 
-def refresh_token(refresh_token_str: str):
-    if not refresh_token_str:
+def refresh_token(client_refresh_token: str) -> tuple[str, str]:
+    if not client_refresh_token:
         raise HTTPException(status_code=403, detail="Refresh token not found")
 
     try:
-        payload = jwt.decode(refresh_token_str, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(client_refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        # renew refresh token when the expiry is close
+        if payload["exp"] - datetime.utcnow() < timedelta(days=REFRESH_TOKEN_RENEW_DAYS):
+            new_refresh_token = create_refresh_token(data={"sub": payload["sub"], "role": payload["role"]})
+        else:
+            new_refresh_token = client_refresh_token
         new_access_token = create_access_token(data={"sub": payload["sub"], "role": payload["role"]})
-        return new_access_token
+        return new_access_token, new_refresh_token
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=403, detail="Refresh token expired")
     except jwt.InvalidTokenError:

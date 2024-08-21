@@ -173,9 +173,10 @@ def logout_api(response: Response):
 
 @app.post("/api/refresh")
 def refresh_token_api(request: Request, response: Response):
-    refresh_token_str = request.cookies.get("refresh_token")
-    new_access_token = refresh_token(refresh_token_str)
+    client_refresh_token = request.cookies.get("refresh_token")
+    new_access_token, new_refresh_token = refresh_token(client_refresh_token)
     response.set_cookie(key="access_token", value=new_access_token, httponly=True, secure=SECURE_COOKIE)
+    response.set_cookie(key="refresh_token", value=new_refresh_token, httponly=True, secure=SECURE_COOKIE)
     return {"message": "Token refreshed"}
 
 
