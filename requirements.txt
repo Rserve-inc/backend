@@ -6,3 +6,4 @@ python-dotenv==1.0.1
 pydantic==2.8.2
 starlette==0.37.2
 redis==5.0.8
+firebase-admin==6.5.0
