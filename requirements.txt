@@ -1,0 +1,8 @@
+bcrypt==4.2.0
+dataset==1.6.2
+PyJWT==2.9.0
+fastapi==0.112.0
+python-dotenv==1.0.1
+pydantic==2.8.2
+starlette==0.37.2
+redis==5.0.8
