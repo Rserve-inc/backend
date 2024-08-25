@@ -8,3 +8,4 @@ starlette==0.37.2
 redis==5.0.8
 firebase-admin==6.5.0
 psycopg2-binary==2.9.9
+uvicorn==0.30.6
