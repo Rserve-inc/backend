@@ -1,6 +1,9 @@
 import asyncio
+import hmac
+import json
 import os
 from contextlib import asynccontextmanager
+from hashlib import sha256
 from typing import Tuple, Literal
 
 import firebase_admin
@@ -22,6 +25,13 @@ class LoginPayload(BaseModel):
     restaurant_id: str
     role: str
     password: str
+
+
+class ReservationChangedWebhookPayload(BaseModel):
+    reservationId: str
+    changeType: Literal["create", "update", "delete"]
+    beforeData: dict
+    afterData: dict
 
 
 sse_tasks = set()
@@ -64,6 +74,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.mount("/assets", StaticFiles(directory="public/assets"), name="assets")
+
+
+async def verify_hmac_signature(request: Request) -> ReservationChangedWebhookPayload:
+    """
+    Dependency that verifies the HMAC signature of incoming requests.
+    """
+    # Get the signature from the headers
+    signature = request.headers.get("X-Signature")
+    if not signature:
+        raise HTTPException(status_code=403, detail="Signature header missing")
+
+    # Read the request body (which can only be read once)
+    body = await request.body()
+
+    # Compute the HMAC using the secret and the request body
+    expected_signature = hmac.new(
+        envs.WEBHOOK_SECRET.encode(),
+        json.dumps(body).encode(),
+        sha256
+    ).hexdigest()
+
+    # Compare the expected signature with the received signature
+    if not hmac.compare_digest(expected_signature, signature):
+        raise HTTPException(status_code=403, detail="Invalid HMAC signature")
+
+    return ReservationChangedWebhookPayload.model_validate_json(body)
+
 
 def generate_react_response(response: Response):
     index_path = os.path.join("public", "index.html")
@@ -206,9 +243,17 @@ def update_vacancy(action: Literal["increment", "decrement"], table_id: str,
 
 
 @app.post("/webhook")
-def firebase_webhook(request: Request):
-    set_update_flag("R75L213TDHd418zRwvAo")
-    pass
+def firebase_webhook(request: Request, body: ReservationChangedWebhookPayload = Depends(verify_hmac_signature)):
+    """
+    Webhook for reservation change on Firestore
+    :param request:
+    :param body:
+    :return:
+    """
+    # todo: implement the webhook logics for other change types
+    if body.changeType == "create":
+        restaurant_id = body.afterData["restaurant"]["id"]
+        set_update_flag(restaurant_id)
     return {"message": "Webhook received"}
 
 
