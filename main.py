@@ -65,11 +65,19 @@ app.add_middleware(
 )
 app.mount("/assets", StaticFiles(directory="public/assets"), name="assets")
 
+def generate_react_response(response: Response):
+    index_path = os.path.join("public", "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    else:
+        response.status_code = 404
+        response.body = "Index file not found"
+        return response
 
 
 @app.get("/")
-async def root():
-    return {"status": "ok"}
+async def root(response: Response):
+    return generate_react_response(response)
 
 
 @app.get("/api/check-token")
@@ -206,10 +214,4 @@ def firebase_webhook(request: Request):
 
 @app.get("/{_full_path:path}")
 async def serve_app(response: Response, _full_path: str):
-    # Reactのビルド済みインデックスファイルへのパス
-    index_path = os.path.join("public", "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    else:
-        response.status_code = 404
-        return "Index file not found"
+    return generate_react_response(response)
