@@ -1,3 +1,4 @@
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -64,7 +65,7 @@ def refresh_token(client_refresh_token: str) -> tuple[str, str]:
     try:
         payload = jwt.decode(client_refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
         # renew refresh token when the expiry is close
-        if payload["exp"] - datetime.utcnow() < timedelta(days=REFRESH_TOKEN_RENEW_DAYS):
+        if payload["exp"] - time.time() < REFRESH_TOKEN_RENEW_DAYS * 24 * 60 * 60:
             new_refresh_token = create_refresh_token(data={"sub": payload["sub"], "role": payload["role"]})
         else:
             new_refresh_token = client_refresh_token
