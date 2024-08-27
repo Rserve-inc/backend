@@ -145,7 +145,12 @@ async def stream_reservations(session_info: Tuple[str, str] = Depends(verify_tok
         finally:
             print("SSE generator stopped")
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Content-Type": "text/event-stream"
+    }
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers=headers)
 
 
 @app.get("/api/restaurant/reservations")
